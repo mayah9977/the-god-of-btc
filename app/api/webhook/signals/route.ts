@@ -1,6 +1,6 @@
 // app/api/webhook/signals/route.ts
 import { NextResponse } from "next/server";
-import { adminDB, FieldValue /*, adminMsg */ } from "@/lib/firebase-admin";
+import { adminDb, FieldValue /*, adminMsg */ } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
       createdAt: FieldValue.serverTimestamp(),
       source: "webhook",
     };
-    const ref = await adminDB.collection("signals").add(doc);
+    const ref = await adminDb.collection("signals").add(doc);
     console.log("📝 saved:", ref.id);
 
     /* 4) 🔕 (다음 단계에서 켭니다) 토픽 푸시
