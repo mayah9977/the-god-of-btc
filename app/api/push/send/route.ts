@@ -1,6 +1,6 @@
 // app/api/push/send/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { initAdmin, adminMsg } from "@/lib/firebase-admin";
+import { adminMsg } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 

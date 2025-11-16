@@ -1,11 +1,10 @@
 // app/api/push/unsubscribe/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { initAdmin, adminDb, adminMsg, FieldValue } from "@/lib/firebase-admin";
+import { adminDB, adminMsg, FieldValue } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  await initAdmin();
 
   const { token, topic } = await req.json().catch(() => ({} as any));
   if (!token || !topic) {
@@ -14,7 +13,7 @@ export async function POST(req: NextRequest) {
 
   await adminMsg.unsubscribeFromTopic([String(token)], String(topic));
 
-  await adminDb
+  await adminDB
     .collection("fcm_tokens")
     .doc(String(token))
     .set(

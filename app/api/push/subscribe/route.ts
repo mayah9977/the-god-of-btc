@@ -1,6 +1,6 @@
 // app/api/push/subscribe/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { initAdmin, adminDb, adminMsg, FieldValue } from "@/lib/firebase-admin";
+import { adminDB, adminMsg, FieldValue } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   await adminMsg.subscribeToTopic([String(token)], String(topic));
 
   // 토큰 문서에 topic 추가
-  await adminDb
+  await adminDB
     .collection("fcm_tokens")
     .doc(String(token))
     .set(

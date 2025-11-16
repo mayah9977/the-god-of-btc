@@ -1,6 +1,6 @@
 // app/api/webhook/signals/tv/route.ts
 import { NextResponse } from "next/server";
-import { initAdmin, adminDb, FieldValue /* , adminMsg */ } from "@/lib/firebase-admin";
+import { adminDB, FieldValue /* , adminMsg */ } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       source: "tradingview",
       createdAt: FieldValue.serverTimestamp(),
     };
-    const ref = await adminDb.collection("signals_raw").add(doc);
+    const ref = await adminDB.collection("signals_raw").add(doc);
 
     // // 4) (옵션) 토픽 푸시
     // const topics = ["signals", `sym-${symbol}`];

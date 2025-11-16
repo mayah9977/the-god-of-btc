@@ -1,11 +1,10 @@
 // app/api/push/register/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { initAdmin, adminDb, FieldValue } from "@/lib/firebase-admin";
+import { adminDB, FieldValue } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  await initAdmin();
 
   const { token, topic } = await req.json().catch(() => ({} as any));
   if (!token || typeof token !== "string") {
@@ -13,7 +12,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 토큰 저장 / 갱신
-  await adminDb.collection("fcm_tokens").doc(token).set(
+  await adminDB.collection("fcm_tokens").doc(token).set(
     {
       token,
       topics: topic ? [String(topic)] : [],

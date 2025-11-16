@@ -1,13 +1,12 @@
 // app/api/webhook/signals/route.ts
 import { NextResponse } from "next/server";
-import { initAdmin, adminDb, FieldValue /* , adminMsg */ } from "@/lib/firebase-admin";
+import { adminDB, FieldValue /* , adminMsg */ } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
     // 0) Firebase Admin 1회 초기화
-    await initAdmin();
 
     // 1) 시크릿 검증
     const got = req.headers.get("x-webhook-secret");
@@ -40,7 +39,7 @@ export async function POST(req: Request) {
       source: "webhook",
     };
 
-    const ref = await adminDb.collection("signals").add(doc);
+    const ref = await adminDB.collection("signals").add(doc);
 
     /* 4) 🔕 (다음 단계에서 켭니다) 토픽 푸시
     const topics = ["signals", `sym-${symbol}`];
