@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { app } from "@/lib/firebase-client";
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 
 export default function LoginPage() {
@@ -15,7 +14,8 @@ export default function LoginPage() {
     setErr(null);
     setLoading(true);
     try {
-      const auth = getAuth(app);
+      const auth = getAuth();   // ✅ 기본 Firebase App 사용
+
       await signInWithEmailAndPassword(auth, email, pw);
       alert("로그인 성공");
     } catch (e: any) {

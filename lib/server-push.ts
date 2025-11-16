@@ -3,7 +3,7 @@
 // - adminDb / adminMsg 사용
 // - TypeScript 경고 제거 (any 명시함)
 
-import { adminDb, adminMsg } from "@/lib/firebase-admin";
+import { adminDB, adminMsg } from "@/lib/firebase-admin";
 
 type PushPayload = {
   title: string;

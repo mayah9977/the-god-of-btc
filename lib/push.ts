@@ -1,7 +1,8 @@
 // lib/push.ts
 "use client";
 
-import { getApps, getApp, initializeApp } from "firebase/app";
+import { getApps, getApp, initializeApp } from "firebase/app"; // ✅
+
 import { getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 
 const firebaseConfig = {

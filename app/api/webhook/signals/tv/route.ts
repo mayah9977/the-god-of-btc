@@ -13,8 +13,6 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   try {
     // 0) Firebase Admin 초기화
-    await initAdmin();
-
     // 1) 시크릿 검증
     const got = req.headers.get("x-webhook-secret");
     const expected = process.env.WEBHOOK_SECRET;

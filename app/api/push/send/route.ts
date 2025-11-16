@@ -22,8 +22,6 @@ export const runtime = "nodejs";
  * }
  */
 export async function POST(req: NextRequest) {
-  await initAdmin();
-
   const payload = await req.json().catch(() => ({}));
   const {
     targetType = "topic",

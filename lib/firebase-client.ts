@@ -1,6 +1,7 @@
 // lib/firebase-client.ts
-import { getApp, getApps, initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 
+// .env.local 의 공개 키 사용
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
@@ -11,8 +12,9 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-// 이미 초기화된 Firebase 앱이 있으면 재사용, 없으면 새로 초기화
+// ✅ 여기서 바로 App 인스턴스를 만들어서 export 합니다 (함수가 아님)
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
 
 
 
