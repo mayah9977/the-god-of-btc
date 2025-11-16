@@ -1,37 +1,34 @@
 // lib/firebase-admin.ts
-import { getApps, initializeApp, cert, App } from "firebase-admin/app";
-import {
-  getFirestore,
-  FieldValue,
-  Timestamp,
-  Firestore,
-} from "firebase-admin/firestore";
-import { getMessaging, Messaging } from "firebase-admin/messaging";
+import admin, { ServiceAccount } from "firebase-admin";
 
-// 내부 보관용 핸들
-let _app: App | undefined;
-let _db: Firestore | undefined;
-let _msg: Messaging | undefined;
+// 이미 생성된 Firebase Admin 앱이 있으면 재사용, 없으면 새로 생성
+let app: admin.app.App;
 
-// 최초 1회만 Admin 초기화
-export function initAdmin() {
-  if (!getApps().length) {
-    const raw = process.env.FIREBASE_ADMIN_KEY;
-    if (!raw) throw new Error("FIREBASE_ADMIN_KEY is missing");
-    const serviceAccount = JSON.parse(raw);
-    _app = initializeApp({ credential: cert(serviceAccount) });
+if (!admin.apps.length) {
+  // .env.local 에 넣어둔 서비스 계정 JSON
+  const serviceAccountJson = process.env.FIREBASE_ADMIN_KEY;
+  if (!serviceAccountJson) {
+    throw new Error("FIREBASE_ADMIN_KEY env var is missing");
   }
-  if (!_db) _db = getFirestore();
-  if (!_msg) _msg = getMessaging();
-  return { app: _app!, adminDb: _db!, adminMsg: _msg! };
+
+  const serviceAccount = JSON.parse(
+    serviceAccountJson
+  ) as ServiceAccount;
+
+  app = admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    projectId: serviceAccount.project_id,
+  });
+} else {
+  app = admin.app();
 }
 
-// 바로 가져다 쓸 수 있는 참조(라우트에서 await initAdmin() 후 사용 권장)
-export const adminDb: Firestore = getFirestore();
-export const adminMsg: Messaging = getMessaging();
+// 🔹 여기서 서버용 Firestore / FieldValue / Messaging 등을 모두 export
+export const adminDB = admin.firestore(app);
+export const FieldValue = admin.firestore.FieldValue;
+export const adminMsg = admin.messaging(app);
+export const adminAuth = admin.auth(app);
 
-// 필요로 하던 심벌도 그대로 export
-export { FieldValue, Timestamp };
 
 
 

@@ -1,32 +1,33 @@
 // app/api/admin/signals/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { initAdmin, adminDb } from "@/lib/firebase-admin";
+import { NextResponse } from "next/server";
+import { adminDB } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  // ✅ firebase-admin 초기화 (클라 SDK 아님)
-  await initAdmin();
+// 관리자용: 최근 시그널 목록 조회
+export async function GET() {
+  try {
+    const snap = await adminDB
+      .collection("signals")
+      .orderBy("createdAt", "desc")
+      .limit(50)
+      .get();
 
-  const { searchParams } = new URL(req.url);
-  const limitParam = Number(searchParams.get("limit") ?? 50);
-  const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
+    const items = snap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
 
-  // ✅ adminDb (서버 SDK)로 Firestore 조회
-  const snap = await adminDb
-    .collection("signals_raw")
-    .orderBy("createdAt", "desc")
-    .limit(limit)
-    .get();
-
-  const items = snap.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-  }));
-
-  return NextResponse.json({ ok: true, items }, { status: 200 });
+    return NextResponse.json({ ok: true, items }, { status: 200 });
+  } catch (e: any) {
+    console.error("admin/signals error:", e);
+    return NextResponse.json(
+      { ok: false, error: String(e?.message ?? e) },
+      { status: 500 }
+    );
+  }
 }
+
 
 
 
