@@ -1,54 +1,117 @@
-// ✅ FCM 웹 푸시용 서비스워커 (public/firebase-messaging-sw.js)
-// - FCM이 보낸 푸시 payload를 받아 브라우저 알림으로 표시합니다.
-// - 이 파일은 반드시 public/ 최상위에 있어야 합니다.
+// public/firebase-messaging-sw.js
+// ✅ FCM 웹 푸시용 서비스워커 (고급 옵션 버전)
+// - FCM이 보낸 payload(notification + data)를 받아 브라우저 알림으로 표시
+// - image, requireInteraction, actions(버튼), clickUrl, tag, renotify 지원
 
 self.addEventListener('push', (event) => {
+  let payload = {};
   try {
-    const payload = event.data?.json?.() ?? event.data ? event.data.json() : {};
-    const n = payload.notification || {};
-    const data = payload.data || {};
-
-    const title = n.title || '알림';
-    const body = n.body || '';
-    const icon = n.icon || '/icon-192x192.png'; // 아이콘 파일이 없으면 기본값
-
-    event.waitUntil(
-      self.registration.showNotification(title, {
-        body,
-        icon,
-        data, // 클릭 시 열 URL 등을 data.click_action으로 받을 수 있음
-        requireInteraction: false,
-      })
-    );
+    // event.data.json() 이 표준 FCM JSON 포맷
+    payload = event.data?.json() ?? {};
   } catch (e) {
-    // 혹시 payload가 json이 아닐 때 대비
-    event.waitUntil(
-      self.registration.showNotification('알림', {
-        body: '새 알림이 도착했습니다.',
-      })
-    );
+    console.error('[SW] push payload parse error:', e);
+    payload = {};
   }
+
+  const n = payload.notification || {};
+  const d = payload.data || {};
+
+  // 🔹 제목/본문
+  const title = n.title || d.title || '알림';
+  const body = n.body || d.body || '';
+
+  // 🔹 아이콘/이미지/배지
+  const icon = n.icon || d.icon || '/icon-192x192.png';
+  const image = n.image || d.image || undefined;       // 큰 이미지
+  const badge = d.badge || '/badge-72x72.png';         // 선택 (없어도 동작)
+
+  // 🔹 requireInteraction / tag / renotify
+  const requireInteraction = String(d.requireInteraction).toLowerCase() === 'true';
+  const tag = d.tag || 'btc-signal';
+  const renotify = String(d.renotify).toLowerCase() === 'true';
+
+  // 🔹 클릭 시 열 URL (서버에서 data.clickUrl로 보낸 값)
+  const clickUrl =
+    d.clickUrl ||
+    d.click_action ||
+    d.url ||
+    '/';
+
+  // 🔹 버튼 텍스트
+  const actionOpenTitle = d.actionOpenTitle || '열기';
+  const actionCloseTitle = d.actionCloseTitle || '닫기';
+
+  const options = {
+    body,
+    icon,
+    image,
+    badge,
+    tag,
+    renotify,
+    requireInteraction,
+    data: {
+      clickUrl,
+      // 필요하면 여기 d 전체를 같이 넣어두면 디버깅에 도움 됨
+      raw: d,
+    },
+    actions: [
+      {
+        action: 'open',
+        title: actionOpenTitle,
+      },
+      {
+        action: 'close',
+        title: actionCloseTitle,
+      },
+    ],
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
 });
 
-// 알림 클릭 시 탭 포커스/열기
+// 알림 클릭 시 탭 포커스/열기 + 버튼 동작 처리
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = (event.notification.data && (event.notification.data.click_action || event.notification.data.url)) || '/';
 
+  const action = event.action;
+  const data = event.notification.data || {};
+  const targetUrl = data.clickUrl || '/';
+
+  // "닫기" 버튼이면 아무것도 안 함
+  if (action === 'close') {
+    return;
+  }
+
+  // 기본 동작 또는 "open" 버튼 → 탭 포커스 또는 새 창
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         try {
           const url = new URL(client.url);
           if (url.origin === self.location.origin) {
+            // 이미 열려 있는 동일 origin 탭 → 포커스 + (선택) URL 변경
+            if (client.url !== targetUrl) {
+              // 지원하는 브라우저에서는 navigate 사용
+              if ('navigate' in client) {
+                client.navigate(targetUrl);
+              } else {
+                client.postMessage({ type: 'FROM_SW_OPEN_URL', url: targetUrl });
+              }
+            }
             return client.focus();
           }
-        } catch (_) {}
+        } catch (e) {
+          // ignore URL parse error
+        }
       }
-      return self.clients.openWindow(target);
+      // 열린 탭이 없으면 새 창/탭 열기
+      return self.clients.openWindow(targetUrl);
     })
   );
 });
+
 
 
 

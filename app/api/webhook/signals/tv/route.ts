@@ -1,58 +1,129 @@
-// app/api/webhook/signals/tv/route.ts
+// app/api/webhook/tv/route.ts
 import { NextResponse } from "next/server";
-import { adminDB, FieldValue /* , adminMsg */ } from "@/lib/firebase-admin";
+import { adminDB, adminMsg, FieldValue } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
-/**
- * TradingView → Webhook → 이 엔드포인트
- * 헤더:  x-webhook-secret: <WEBHOOK_SECRET>
- * 바디 예:
- * { "symbol": "BTCUSDT", "title": "신호", "message": "롱 진입", "side": "long", "price": 68000 }
- */
 export async function POST(req: Request) {
   try {
-    // 0) Firebase Admin 초기화
-    // 1) 시크릿 검증
-    const got = req.headers.get("x-webhook-secret");
+    // 0) 시크릿 검증: ?secret=... 으로 전달
+    const url = new URL(req.url);
+    const got = url.searchParams.get("secret");
     const expected = process.env.WEBHOOK_SECRET;
-    if (!got || got !== expected) {
-      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+
+    console.log("🔎 Incoming TV webhook:", got, "expected:", expected);
+
+    if (!expected || !got || got !== expected) {
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 },
+      );
     }
 
-    // 2) 바디 파싱 및 검증
+    // 1) 바디 파싱
     const body = await req.json().catch(() => ({} as any));
-    const { symbol, title, message, side, price } = body ?? {};
-    if (!symbol || !title || !message) {
-      return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
+    console.log("📦 TV payload:", body);
+
+    const {
+      symbol,
+      price,
+      side,
+      message,
+      image,      // 🔹 TradingView에서 함께 보낼 수 있는 선택적 필드
+      clickUrl,   // 🔹 직접 URL을 넘기고 싶다면
+    } = body ?? {};
+
+    if (!symbol || price === undefined) {
+      return NextResponse.json(
+        { ok: false, error: "symbol/price required" },
+        { status: 400 },
+      );
     }
 
-    // 3) Firestore 저장 (서버 SDK)
+    // 2) Firestore 저장 (signals_raw 컬렉션)
     const doc = {
       symbol: String(symbol),
-      title: String(title),
-      message: String(message),
+      title: message ? String(message) : "TradingView Alert",
+      message: message ? String(message) : "",
       side: side ? String(side) : "",
-      price: typeof price === "number" ? price : Number(price ?? 0),
-      source: "tradingview",
+      price: Number(price),
       createdAt: FieldValue.serverTimestamp(),
+      source: "tradingview",
+      image: image ? String(image) : "",     // 🔹 이미지도 함께 저장 (선택)
     };
+
     const ref = await adminDB.collection("signals_raw").add(doc);
+    console.log("📝 TV signal saved:", ref.id);
 
-    // // 4) (옵션) 토픽 푸시
-    // const topics = ["signals", `sym-${symbol}`];
-    // for (const t of topics) {
-    //   await adminMsg.send({
-    //     topic: t,
-    //     notification: { title: `[${symbol}] ${title}`, body: message },
-    //     data: { symbol: String(symbol), side: String(side ?? ""), price: String(doc.price) },
-    //   });
-    // }
+    // 3) 클릭 시 이동할 URL 계산
+    //    - body.clickUrl 우선
+    //    - 없으면 NEXT_PUBLIC_APP_URL + /signal/<id> 사용
+    const baseUrl =
+      (process.env.NEXT_PUBLIC_APP_URL as string | undefined) ??
+      `${url.protocol}//${url.host}`;
 
-    return NextResponse.json({ ok: true, id: ref.id }, { status: 200 });
+    const finalClickUrl =
+      clickUrl && typeof clickUrl === "string"
+        ? clickUrl
+        : `${baseUrl}/signal/${ref.id}`;
+
+    // 4) 푸시 알림 발송 (topics: signals, sym-<SYMBOL>)
+    const topics = ["signals", `sym-${doc.symbol}`];
+
+    const titleText = `[${doc.symbol}] ${doc.title}`;
+    const bodyText = doc.message || `Price: ${doc.price}`;
+
+    for (const t of topics) {
+      await adminMsg.send({
+        topic: t,
+        notification: {
+          title: titleText,
+          body: bodyText,
+          // image: doc.image || undefined, // 필요하면 여기에도 image 추가 가능
+        },
+        data: {
+          symbol: doc.symbol,
+          side: doc.side,
+          price: String(doc.price),
+          source: "tv",
+
+          // 🔽 서비스워커에서 쓸 “고급 옵션”들
+          clickUrl: finalClickUrl,
+          image: doc.image || "",
+          requireInteraction: "true",           // 사용자가 닫을 때까지 유지
+          actionOpenTitle: "시그널 열기",
+          actionCloseTitle: "닫기",
+          tag: "btc-signal",
+          renotify: "true",
+        },
+        webpush: {
+          headers: {
+            Urgency: "high", // high-priority
+          },
+          notification: {
+            requireInteraction: true,
+          },
+          fcmOptions: {
+            link: finalClickUrl,
+          },
+        },
+      });
+    }
+
+    console.log("📣 push sent to topics:", topics);
+
+    return NextResponse.json(
+      { ok: true, id: ref.id },
+      { status: 200 },
+    );
   } catch (e: any) {
     console.error("❌ tv webhook error:", e);
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: String(e?.message ?? e) },
+      { status: 500 },
+    );
   }
 }
+
+
 

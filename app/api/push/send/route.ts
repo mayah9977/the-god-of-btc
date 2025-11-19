@@ -4,76 +4,72 @@ import { adminMsg } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
-/**
- * POST /api/push/send
- * Body (예시)
- * {
- *   "targetType": "topic" | "token",
- *   "topic": "btc",           // targetType === "topic"일 때 필수
- *   "token": "<FCM_TOKEN>",   // targetType === "token"일 때 필수
- *   "title": "Bit Hacker — 새 신호 알림",
- *   "body": "BTC/USDT 롱 진입 신호 발생",
- *   "clickUrl": "https://the-god-of-btc.app/signal/123",
- *   "iconUrl": "/icons/bithacker-192.png",
- *   "imageUrl": "https://picsum.photos/800/400",
- *   "priority": "high" | "normal",
- *   "ttl": 3600,
- *   "requireInteraction": false
- * }
- */
 export async function POST(req: NextRequest) {
-  const payload = await req.json().catch(() => ({}));
-  const {
-    targetType = "topic",
-    topic,
-    token,
-    title,
-    body,
-    clickUrl,
-    iconUrl,
-    imageUrl,
-    priority = "high",
-    ttl = 3600,
-    requireInteraction = false,
-  } = payload ?? {};
+  try {
+    const raw = await req.json().catch(() => ({} as any));
 
-  // 필수값 체크
-  if (!title || !body) {
-    return NextResponse.json({ ok: false, error: "title/body required" }, { status: 400 });
+    console.log("[/api/push/send] raw payload:", JSON.stringify(raw));
+
+    // 1) 제목/본문 대충 결정 (없으면 기본값)
+    const title =
+      raw?.notification?.title ??
+      raw?.title ??
+      "Bit Hacker — TEST";
+    const body =
+      raw?.notification?.body ??
+      raw?.body ??
+      "테스트 알림입니다.";
+
+    // 2) topic / token 아무거나 받기 (없으면 topic 'btc'로)
+    const topic = raw?.target ?? raw?.topic ?? "btc";
+
+    const clickUrl =
+      raw?.link ??
+      raw?.clickUrl ??
+      "https://the-god-of-btc.app";
+
+    // 3) FCM 전송 (실패해도 에러만 로그에 찍고, 응답은 200으로 돌려줌)
+    try {
+      const res = await adminMsg.send({
+        topic: String(topic),
+        notification: {
+          title: String(title),
+          body: String(body),
+        },
+        data: {
+          clickUrl,
+        },
+        webpush: {
+          fcmOptions: { link: clickUrl },
+        },
+      });
+
+      console.log("[/api/push/send] FCM sent:", res);
+    } catch (e: any) {
+      console.error("[/api/push/send] FCM ERROR:", e);
+      // 여기서는 굳이 400/500 안 주고, 프런트에는 ok:false 만 알려줍니다.
+      return NextResponse.json(
+        { ok: false, error: String(e?.message ?? e) },
+        { status: 200 },
+      );
+    }
+
+    // 4) 항상 200 OK
+    return NextResponse.json(
+      { ok: true },
+      { status: 200 },
+    );
+  } catch (e: any) {
+    console.error("❌ /api/push/send handler error:", e);
+    return NextResponse.json(
+      { ok: false, error: String(e?.message ?? e) },
+      { status: 200 }, // 여기서도 200
+    );
   }
-  if (targetType === "topic" && !topic) {
-    return NextResponse.json({ ok: false, error: "topic required" }, { status: 400 });
-  }
-  if (targetType === "token" && !token) {
-    return NextResponse.json({ ok: false, error: "token required" }, { status: 400 });
-  }
-
-  // WebPush 옵션 구성 (웹 FCM)
-  const webpush: import("firebase-admin/messaging").WebpushConfig = {
-    fcmOptions: clickUrl ? { link: String(clickUrl) } : undefined,
-    headers: {
-      TTL: String(Number(ttl) || 3600),
-      Urgency: priority === "high" ? "high" : "normal",
-    },
-    notification: {
-      icon: iconUrl ? String(iconUrl) : undefined,
-      image: imageUrl ? String(imageUrl) : undefined,
-      requireInteraction: !!requireInteraction,
-    },
-  };
-
-  const message: import("firebase-admin/messaging").Message = {
-    notification: { title: String(title), body: String(body) },
-    data: {
-      clickUrl: String(clickUrl ?? ""),
-      iconUrl: String(iconUrl ?? ""),
-      imageUrl: String(imageUrl ?? ""),
-    },
-    webpush,
-    ...(targetType === "topic" ? { topic: String(topic) } : { token: String(token) }),
-  };
-
-  const res = await adminMsg.send(message);
-  return NextResponse.json({ ok: true, id: res });
 }
+
+
+
+
+
 

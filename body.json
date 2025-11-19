@@ -1,0 +1,7 @@
+{
+  "symbol": "BTCUSDT",
+  "title": "Test from curl",
+  "message": "long entry test",
+  "side": "long",
+  "price": 68000
+}
