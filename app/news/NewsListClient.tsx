@@ -1,203 +1,282 @@
 // @ts-nocheck
-"use client";
+'use client';
 
-import React, { useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import React, { useMemo, useState } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
   Select,
+  SelectTrigger,
   SelectContent,
   SelectItem,
-  SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Card, CardContent } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+} from '@/components/ui/select';
 
 export type NewsItem = {
   id: string;
   sourceId: string;
   sourceName: string;
-  lang: "ko" | "en" | "ja";
+  lang: 'ko' | 'en' | 'ja';
   title: string;
   summary: string;
   url: string;
   coins: string[];
   tags: string[];
   publishedAt: string; // ISO string
+  sentiment?: string;
+  rankScore?: number;
+  pushCandidate?: boolean;
 };
 
 type Props = {
   initialItems: NewsItem[];
 };
 
-const LANG_OPTIONS = [
-  { value: "all", label: "전체" },
-  { value: "ko", label: "한국어" },
-  { value: "en", label: "영어" },
-  { value: "ja", label: "일본어" },
-];
+const sentimentColor: Record<string, string> = {
+  BULLISH: 'bg-emerald-500',
+  BEARISH: 'bg-red-500',
+  NEUTRAL: 'bg-slate-500',
+};
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleString();
+}
 
 export default function NewsListClient({ initialItems }: Props) {
-  const [lang, setLang] = useState<"all" | "ko" | "en" | "ja">("all");
-  const [keyword, setKeyword] = useState("");
-  const [coinFilter, setCoinFilter] = useState<string>("all");
+  const [keyword, setKeyword] = useState('');
+  const [lang, setLang] = useState<'ALL' | 'ko' | 'en' | 'ja'>('ALL');
+  const [coin, setCoin] = useState<'ALL' | string>('ALL');
+  const [sentiment, setSentiment] =
+    useState<'ALL' | 'BULLISH' | 'BEARISH' | 'NEUTRAL'>('ALL');
+  const [onlyPush, setOnlyPush] = useState(false);
 
-  const coinsAll = useMemo(() => {
-    const set = new Set<string>();
-    initialItems.forEach((n) => n.coins?.forEach((c) => set.add(c)));
-    return Array.from(set);
+  const coins = useMemo(() => {
+    const s = new Set<string>();
+    initialItems.forEach((n) => n.coins?.forEach((c) => s.add(c)));
+    return Array.from(s);
   }, [initialItems]);
 
   const filtered = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
+    let list = initialItems;
 
-    return initialItems.filter((n) => {
-      if (lang !== "all" && n.lang !== lang) return false;
-      if (coinFilter !== "all" && !n.coins.includes(coinFilter)) return false;
+    if (lang !== 'ALL') {
+      list = list.filter((n) => n.lang === lang);
+    }
+    if (coin !== 'ALL') {
+      list = list.filter((n) => n.coins?.includes(coin));
+    }
+    if (sentiment !== 'ALL') {
+      list = list.filter((n) => n.sentiment === sentiment);
+    }
+    if (onlyPush) {
+      list = list.filter((n) => n.pushCandidate);
+    }
+    if (keyword.trim().length > 0) {
+      const k = keyword.toLowerCase();
+      list = list.filter((n) => {
+        const haystack = `${n.title} ${n.summary} ${n.sourceName}`.toLowerCase();
+        return haystack.includes(k);
+      });
+    }
 
-      if (kw) {
-        const text = (n.title + " " + n.summary + " " + n.sourceName).toLowerCase();
-        if (!text.includes(kw)) return false;
-      }
+    // 🔥 Reordering: rankScore 우선, 동점이면 최신순
+    return [...list].sort((a, b) => {
+      const ra = a.rankScore ?? 0;
+      const rb = b.rankScore ?? 0;
+      if (ra !== rb) return rb - ra;
 
-      return true;
+      const ta = new Date(a.publishedAt).getTime();
+      const tb = new Date(b.publishedAt).getTime();
+      return tb - ta;
     });
-  }, [initialItems, lang, keyword, coinFilter]);
+  }, [initialItems, lang, coin, sentiment, onlyPush, keyword]);
 
   return (
-    <div className="space-y-4">
-      {/* 필터 영역 */}
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="space-y-1">
-          <div className="text-xs font-medium text-muted-foreground">언어</div>
-          <Select value={lang} onValueChange={(v) => setLang(v as any)}>
-            <SelectTrigger>
-              <SelectValue placeholder="언어 선택" />
-            </SelectTrigger>
-            <SelectContent>
-              {LANG_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1">
-          <div className="text-xs font-medium text-muted-foreground">코인</div>
-          <Select value={coinFilter} onValueChange={(v) => setCoinFilter(v)}>
-            <SelectTrigger>
-              <SelectValue placeholder="코인 선택" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">전체</SelectItem>
-              {coinsAll.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1">
-          <div className="text-xs font-medium text-muted-foreground">
-            검색 (제목/내용/출처)
-          </div>
-          <Input
-            placeholder="ETF, FOMC, 비트코인 등 키워드"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* 리스트 */}
-      <div className="space-y-3">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
+      {/* Left: list */}
+      <div className="space-y-4">
         {filtered.length === 0 && (
-          <div className="text-sm text-muted-foreground">
-            조건에 맞는 뉴스가 없습니다.
-          </div>
+          <p className="text-sm text-muted-foreground">
+            현재 조건에 맞는 뉴스가 없습니다.
+          </p>
         )}
 
-        {filtered.map((n) => {
-          const date = new Date(n.publishedAt);
-          const dateStr = isNaN(date.getTime())
-            ? ""
-            : date.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
-
-          return (
-            <a
-              key={n.id}
-              href={n.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block"
-            >
-              <Card className={cn("transition hover:border-primary/60 hover:shadow-md")}>
-                <CardContent className="p-4 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-semibold line-clamp-2">{n.title}</div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] px-1.5 py-0"
-                      >
-                        {n.sourceName}
-                      </Badge>
-                      {n.lang !== "en" && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] px-1.5 py-0"
-                        >
-                          {n.lang.toUpperCase()}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  {n.summary && (
-                    <div className="text-xs text-muted-foreground line-clamp-2">
-                      {n.summary}
-                    </div>
+        {filtered.map((item) => (
+          <Card
+            key={item.id}
+            className="cursor-pointer transition hover:shadow-md"
+            onClick={() => {
+              if (item.url && item.url !== '#') {
+                window.open(item.url, '_blank', 'noopener,noreferrer');
+              }
+            }}
+          >
+            <CardHeader className="flex flex-row items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">{item.title}</CardTitle>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>{item.sourceName}</span>
+                  <span>•</span>
+                  <span>{item.lang}</span>
+                  <span>•</span>
+                  <span>{item.coins.join(', ') || 'ALL'}</span>
+                  <span>•</span>
+                  <span>{formatDate(item.publishedAt)}</span>
+                  {typeof item.rankScore === 'number' && (
+                    <>
+                      <span>•</span>
+                      <span>score {item.rankScore}</span>
+                    </>
                   )}
-
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1">
-                      {n.coins.map((c) => (
-                        <Badge
-                          key={c}
-                          variant="secondary"
-                          className="text-[10px] px-1.5 py-0"
-                        >
-                          {c}
-                          </Badge>
-                      ))}
-                      {n.tags.map((t) => (
-                        <Badge
-                          key={t}
-                          variant="outline"
-                          className="text-[10px] px-1.5 py-0"
-                        >
-                          #{t}
-                        </Badge>
-                      ))}
-                    </div>
-                    {dateStr && (
-                      <div className="text-[11px] text-muted-foreground">
-                        {dateStr}
-                      </div>
-                    )}
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                {item.sentiment && (
+                  <Badge
+                    className={
+                      'text-[10px] font-semibold uppercase text-white ' +
+                      (sentimentColor[item.sentiment] ?? 'bg-slate-500')
+                    }
+                  >
+                    {item.sentiment}
+                  </Badge>
+                )}
+                {item.pushCandidate && (
+                  <Badge className="bg-amber-500 text-[10px] text-white">
+                    PUSH
+                  </Badge>
+                )}
+                {item.tags && item.tags.length > 0 && (
+                  <div className="mt-1 flex flex-wrap justify-end gap-1">
+                    {item.tags.slice(0, 4).map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant="outline"
+                        className="border-slate-300 px-1.5 py-0 text-[10px]"
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
                   </div>
-                </CardContent>
-              </Card>
-            </a>
-          );
-        })}
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="line-clamp-3 text-sm text-muted-foreground">
+                {item.summary}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
+
+      {/* Right: filters */}
+      <aside className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Filters</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Language */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Language
+              </label>
+              <Select
+                value={lang}
+                onValueChange={(v) => setLang(v as 'ALL' | 'ko' | 'en' | 'ja')}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All</SelectItem>
+                  <SelectItem value="ko">Korean (ko)</SelectItem>
+                  <SelectItem value="en">English (en)</SelectItem>
+                  <SelectItem value="ja">Japanese (ja)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Coin */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Coin
+              </label>
+              <Select
+                value={coin}
+                onValueChange={(v) => setCoin(v as 'ALL' | string)}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All</SelectItem>
+                  {coins.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Sentiment */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Sentiment
+              </label>
+              <Select
+                value={sentiment}
+                onValueChange={(v) =>
+                  setSentiment(
+                    v as 'ALL' | 'BULLISH' | 'BEARISH' | 'NEUTRAL'
+                  )
+                }
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All</SelectItem>
+                  <SelectItem value="BULLISH">Bullish</SelectItem>
+                  <SelectItem value="BEARISH">Bearish</SelectItem>
+                  <SelectItem value="NEUTRAL">Neutral</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Only push candidates */}
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                Only push candidates
+              </label>
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={onlyPush}
+                onChange={(e) => setOnlyPush(e.target.checked)}
+              />
+            </div>
+
+            {/* Keyword */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Keyword
+              </label>
+              <Input
+                className="h-9 text-xs"
+                placeholder="Search title / summary / source"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </aside>
     </div>
   );
 }
+
 
