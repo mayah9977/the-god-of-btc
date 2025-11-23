@@ -64,6 +64,19 @@ function formatDate(ms: number) {
   }
 }
 
+// 뉴스 category 값을 내부 키로 변환
+function normalizeNewsCategory(cat?: string) {
+  const c = (cat ?? '').toLowerCase();
+  if (!c) return 'other';
+  if (c.includes('etf')) return 'etf';
+  if (c.includes('regulation')) return 'regulation';
+  if (c.includes('law') || c.includes('policy')) return 'regulation';
+  if (c.includes('positive') || c.includes('bull')) return 'positive';
+  if (c.includes('negative') || c.includes('bear')) return 'negative';
+  if (c.includes('breaking')) return 'breaking';
+  return 'other';
+}
+
 export default function SignalsFeedClient({ initialItems }: Props) {
   const [kindFilter, setKindFilter] = useState<'all' | 'tv' | 'news'>('all');
   const [sideFilter, setSideFilter] = useState<'all' | 'LONG' | 'SHORT'>(
@@ -73,6 +86,29 @@ export default function SignalsFeedClient({ initialItems }: Props) {
     'latest',
   );
   const [symbolQuery, setSymbolQuery] = useState('');
+  const [strategyFilter, setStrategyFilter] = useState<string>('all');
+  const [newsCategoryFilter, setNewsCategoryFilter] =
+    useState<string>('all');
+
+  // 필터 옵션용 유니크 전략 / 뉴스 카테고리
+  const { strategyOptions, newsCategoryOptions } = useMemo(() => {
+    const stratSet = new Set<string>();
+    const catSet = new Set<string>();
+
+    initialItems.forEach((i) => {
+      if (i.kind === 'tv' && i.strategyId) {
+        stratSet.add(i.strategyId);
+      }
+      if (i.kind === 'news') {
+        catSet.add(normalizeNewsCategory(i.category));
+      }
+    });
+
+    return {
+      strategyOptions: Array.from(stratSet).sort(),
+      newsCategoryOptions: Array.from(catSet).sort(),
+    };
+  }, [initialItems]);
 
   const filtered = useMemo(() => {
     let items = [...initialItems];
@@ -91,6 +127,24 @@ export default function SignalsFeedClient({ initialItems }: Props) {
       );
     }
 
+    // TV 전략 필터
+    if (strategyFilter !== 'all') {
+      items = items.filter((i) =>
+        i.kind === 'tv'
+          ? (i.strategyId ?? '') === strategyFilter
+          : true,
+      );
+    }
+
+    // 뉴스 카테고리 필터
+    if (newsCategoryFilter !== 'all') {
+      items = items.filter((i) =>
+        i.kind === 'news'
+          ? normalizeNewsCategory(i.category) === newsCategoryFilter
+          : true,
+      );
+    }
+
     // 심볼 검색 (BTC, ETH 등)
     if (symbolQuery.trim()) {
       const q = symbolQuery.trim().toUpperCase();
@@ -105,10 +159,10 @@ export default function SignalsFeedClient({ initialItems }: Props) {
     } else if (sortMode === 'oldest') {
       items.sort((a, b) => a.createdAtMs - b.createdAtMs);
     } else if (sortMode === 'score') {
-      // 점수 높은 TV 시그널 우선
+      // 점수 높은 시그널 우선 (점수가 없는 것은 뒤로)
       items.sort((a, b) => {
-        const as = a.score ?? -1;
-        const bs = b.score ?? -1;
+        const as = typeof a.score === 'number' ? a.score : -1;
+        const bs = typeof b.score === 'number' ? b.score : -1;
         if (as === bs) {
           return b.createdAtMs - a.createdAtMs;
         }
@@ -117,17 +171,25 @@ export default function SignalsFeedClient({ initialItems }: Props) {
     }
 
     return items;
-  }, [initialItems, kindFilter, sideFilter, sortMode, symbolQuery]);
+  }, [
+    initialItems,
+    kindFilter,
+    sideFilter,
+    sortMode,
+    symbolQuery,
+    strategyFilter,
+    newsCategoryFilter,
+  ]);
 
   return (
     <div className="space-y-4">
       {/* 필터/정렬 바 */}
       <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 p-3 text-xs md:flex-row md:items-center md:justify-between">
-        {/* 왼쪽: 종류 + 방향 */}
+        {/* 왼쪽: 종류 + 방향 + 전략 */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-muted-foreground">
             <Filter className="h-3 w-3" />
-            Filters
+            FILTERS
           </span>
 
           {/* 종류 필터 */}
@@ -166,7 +228,7 @@ export default function SignalsFeedClient({ initialItems }: Props) {
               className="h-6 px-3 text-[11px]"
               onClick={() => setSideFilter('all')}
             >
-              All
+              ALL
             </Button>
             <Button
               size="sm"
@@ -185,26 +247,61 @@ export default function SignalsFeedClient({ initialItems }: Props) {
               SHORT
             </Button>
           </div>
+
+          {/* 전략 Select (TV 전략 필터) */}
+          <Select
+            value={strategyFilter}
+            onValueChange={(v: any) => setStrategyFilter(v)}
+          >
+            <SelectTrigger className="h-8 w-40 text-[11px]">
+              <SelectValue placeholder="전략 필터" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">모든 전략</SelectItem>
+              {strategyOptions.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        {/* 오른쪽: 심볼 검색 + 정렬 */}
+        {/* 오른쪽: 심볼 검색 + 뉴스 카테고리 + 정렬 */}
         <div className="flex flex-wrap items-center gap-2">
           <Input
             placeholder="심볼 검색 (예: BTC, ETH)"
             value={symbolQuery}
             onChange={(e) => setSymbolQuery(e.target.value)}
-            className="h-8 w-36 text-[11px] md:w-44"
+            className="h-8 w-32 text-[11px] md:w-40"
           />
 
+          {/* 뉴스 카테고리 필터 */}
+          <Select
+            value={newsCategoryFilter}
+            onValueChange={(v: any) => setNewsCategoryFilter(v)}
+          >
+            <SelectTrigger className="h-8 w-32 text-[11px]">
+              <SelectValue placeholder="뉴스 분류" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">뉴스 전체</SelectItem>
+              <SelectItem value="etf">ETF</SelectItem>
+              <SelectItem value="regulation">규제/법안</SelectItem>
+              <SelectItem value="breaking">속보</SelectItem>
+              <SelectItem value="positive">호재</SelectItem>
+              <SelectItem value="negative">악재</SelectItem>
+              <SelectItem value="other">기타</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* 정렬 */}
           <Select
             value={sortMode}
             onValueChange={(v: any) => setSortMode(v)}
           >
             <SelectTrigger className="h-8 w-32 text-[11px]">
-              <SelectValue
-                placeholder="정렬"
-                className="text-[11px]"
-              />
+              <SelectValue placeholder="정렬" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="latest">
@@ -327,6 +424,15 @@ function TvSignalCard({ item }: { item: UnifiedItem }) {
         <span className="text-[11px] text-muted-foreground">
           시그널 ID: {item.id.replace('tv-', '')}
         </span>
+
+        <Button
+          asChild
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-xs"
+        >
+          <Link href={`/signals/${item.id}`}>자세히 보기</Link>
+        </Button>
       </CardFooter>
     </Card>
   );
@@ -335,22 +441,25 @@ function TvSignalCard({ item }: { item: UnifiedItem }) {
 /* ---------------- NEWS 카드 ---------------- */
 
 function NewsSignalCard({ item }: { item: UnifiedItem }) {
-  const cat = (item.category ?? '').toLowerCase();
+  const ncat = normalizeNewsCategory(item.category);
   let badgeLabel = 'News';
   let badgeClass = 'border-slate-300 bg-slate-50 text-slate-700';
 
-  if (cat.includes('positive')) {
+  if (ncat === 'positive') {
     badgeLabel = '호재(Positive)';
     badgeClass = 'border-emerald-400 bg-emerald-50 text-emerald-700';
-  } else if (cat.includes('negative')) {
+  } else if (ncat === 'negative') {
     badgeLabel = '악재(Negative)';
     badgeClass = 'border-red-400 bg-red-50 text-red-700';
-  } else if (cat.includes('etf')) {
+  } else if (ncat === 'etf') {
     badgeLabel = 'ETF';
     badgeClass = 'border-indigo-400 bg-indigo-50 text-indigo-700';
-  } else if (cat.includes('regulation')) {
+  } else if (ncat === 'regulation') {
     badgeLabel = '규제/정책';
     badgeClass = 'border-amber-400 bg-amber-50 text-amber-700';
+  } else if (ncat === 'breaking') {
+    badgeLabel = '속보';
+    badgeClass = 'border-purple-400 bg-purple-50 text-purple-700';
   }
 
   return (
@@ -375,12 +484,19 @@ function NewsSignalCard({ item }: { item: UnifiedItem }) {
           </CardDescription>
         </div>
 
-        <Badge
-          variant="outline"
-          className={`px-2 py-0.5 text-[11px] ${badgeClass}`}
-        >
-          {badgeLabel}
-        </Badge>
+        <div className="flex flex-col items-end gap-1">
+          <Badge
+            variant="outline"
+            className={`px-2 py-0.5 text-[11px] ${badgeClass}`}
+          >
+            {badgeLabel}
+          </Badge>
+          {typeof item.score === 'number' && (
+            <span className="text-[10px] text-muted-foreground">
+              중요도 {item.score}점 ({item.grade} 등급)
+            </span>
+          )}
+        </div>
       </CardHeader>
 
       {item.summary && (
@@ -396,20 +512,31 @@ function NewsSignalCard({ item }: { item: UnifiedItem }) {
           수집 시각: {formatDate(item.createdAtMs)}
         </span>
 
-        {item.url && (
+        <div className="flex gap-2">
+          {item.url && (
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+            >
+              <Link href={item.url} target="_blank">
+                원문 보기
+              </Link>
+            </Button>
+          )}
           <Button
             asChild
             size="sm"
             variant="outline"
             className="h-7 px-2 text-xs"
           >
-            <Link href={item.url} target="_blank">
-              원문 보기
-            </Link>
+            <Link href={`/signals/${item.id}`}>자세히 보기</Link>
           </Button>
-        )}
+        </div>
       </CardFooter>
     </Card>
   );
 }
+
 
