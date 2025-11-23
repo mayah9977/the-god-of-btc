@@ -9,10 +9,26 @@ import SignalsFeedClient from './SignalsFeedClient';
 
 export const dynamic = 'force-dynamic';
 
-// TV / 알고리즘 시그널 가져오기 + 점수/등급 계산
-async function fetchTvSignals(limitCount = 120) {
+type FeedItem = {
+  id: string;
+  kind: 'tv' | 'news';
+  symbol: string;
+  side?: string;
+  strategyId?: string;
+  title: string;
+  summary?: string;
+  source: string;
+  url?: string;
+  score?: number | null;
+  grade?: string | null;
+  category?: string | null;
+  createdAtMs: number;
+  signalType?: string;
+};
+
+async function fetchTvSignals(limitCount = 120): Promise<FeedItem[]> {
   const snap = await adminDB
-    .collection('signals')
+    .collection('signals_raw')
     .orderBy('createdAtMs', 'desc')
     .limit(limitCount)
     .get();
@@ -25,25 +41,14 @@ async function fetchTvSignals(limitCount = 120) {
         ? (d.createdAtMs as number)
         : Date.now();
 
-    // 1) 원본 score / aiScore / confidence 중 있는 값을 사용
-    let rawScore: number | null = null;
-    if (typeof d.score === 'number') rawScore = d.score;
-    else if (typeof d.aiScore === 'number') rawScore = d.aiScore;
-    else if (typeof d.confidence === 'number') rawScore = d.confidence;
-
-    // 2) 등급 자동 계산 (없으면)
-    let grade = d.grade as string | undefined;
-    if (!grade && typeof rawScore === 'number') {
-      if (rawScore >= 90) grade = 'S';
-      else if (rawScore >= 85) grade = 'A';
-      else if (rawScore >= 75) grade = 'B';
-      else if (rawScore >= 65) grade = 'C';
-      else grade = 'D';
-    }
+    let score: number | null = null;
+    if (typeof d.score === 'number') score = d.score;
+    else if (typeof d.aiScore === 'number') score = d.aiScore;
 
     return {
+      // ⬇⬇⬇ 여기서는 Firestore Timestamp/Date 같은 건 절대 그대로 넣지 않습니다.
       id: `tv-${doc.id}`,
-      kind: 'tv' as const,
+      kind: 'tv',
       symbol: (d.symbol ?? 'BTCUSDT').toUpperCase(),
       side: (d.side ?? '').toUpperCase(),
       strategyId: d.strategyId ?? d.strategy ?? '',
@@ -54,16 +59,17 @@ async function fetchTvSignals(limitCount = 120) {
           .toUpperCase()} signal`,
       summary: d.message ?? d.label ?? '',
       source: d.source ?? 'tradingview',
-      url: '', // 나중에 디테일 페이지 링크 가능
-      score: rawScore,
-      grade,
+      url: '', // 상세 페이지에서 다시 보여줄 예정이면 나중에 채워도 됨
+      score,
+      grade: d.grade ?? null,
+      category: null,
       createdAtMs,
+      signalType: d.type ?? 'ai',
     };
   });
 }
 
-// 뉴스 시그널 가져오기 + 중요도 점수 계산
-async function fetchNewsSignals(limitCount = 120) {
+async function fetchNewsSignals(limitCount = 120): Promise<FeedItem[]> {
   const snap = await adminDB
     .collection('news_signals')
     .orderBy('createdAtMs', 'desc')
@@ -82,9 +88,7 @@ async function fetchNewsSignals(limitCount = 120) {
       .toString()
       .toLowerCase();
 
-    // 카테고리/속성 기반 중요도 스코어
     let newsScore: number | null = null;
-
     if (typeof d.importanceScore === 'number') {
       newsScore = d.importanceScore;
     } else {
@@ -106,7 +110,7 @@ async function fetchNewsSignals(limitCount = 120) {
 
     return {
       id: `news-${doc.id}`,
-      kind: 'news' as const,
+      kind: 'news',
       symbol: (d.symbol ?? 'BTCUSDT').toUpperCase(),
       side: '',
       strategyId: '',
@@ -118,6 +122,7 @@ async function fetchNewsSignals(limitCount = 120) {
       grade,
       category: categoryRaw,
       createdAtMs,
+      signalType: 'news',
     };
   });
 }
@@ -128,14 +133,13 @@ export default async function SignalsPage() {
     fetchNewsSignals(120),
   ]);
 
-  // 통합 피드 (최신순)
-  const allItems = [...tvSignals, ...newsSignals].sort(
+  // 단순 숫자/문자열만 담긴 plain object 배열
+  const allItems: FeedItem[] = [...tvSignals, ...newsSignals].sort(
     (a, b) => b.createdAtMs - a.createdAtMs,
   );
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6">
-      {/* 상단 헤더 */}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
@@ -160,7 +164,7 @@ export default async function SignalsPage() {
         </div>
       </div>
 
-      {/* 클라이언트 필터/정렬 UI + 리스트 */}
+      {/* 여기서 SignalsFeedClient 로 넘기는 것은 완전히 직렬화 가능한 plain objects */}
       <SignalsFeedClient initialItems={allItems} />
     </div>
   );

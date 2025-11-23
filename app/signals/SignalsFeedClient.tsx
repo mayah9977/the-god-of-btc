@@ -27,6 +27,7 @@ import {
   Flame,
   LineChart,
   Newspaper,
+  Sparkles,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -41,9 +42,10 @@ type UnifiedItem = {
   source: string;
   url?: string;
   score?: number | null;
-  grade?: string;
-  category?: string;
+  grade?: string | null;
+  category?: string | null;
   createdAtMs: number;
+  signalType?: string; // 'ai' | 'rule' | 'news' ...
 };
 
 type Props = {
@@ -64,8 +66,7 @@ function formatDate(ms: number) {
   }
 }
 
-// 뉴스 category 값을 내부 키로 변환
-function normalizeNewsCategory(cat?: string) {
+function normalizeNewsCategory(cat?: string | null) {
   const c = (cat ?? '').toLowerCase();
   if (!c) return 'other';
   if (c.includes('etf')) return 'etf';
@@ -89,36 +90,25 @@ export default function SignalsFeedClient({ initialItems }: Props) {
   const [strategyFilter, setStrategyFilter] = useState<string>('all');
   const [newsCategoryFilter, setNewsCategoryFilter] =
     useState<string>('all');
+  const [aiOnly, setAiOnly] = useState(false); // ⭐ AI Only 모드
 
-  // 필터 옵션용 유니크 전략 / 뉴스 카테고리
-  const { strategyOptions, newsCategoryOptions } = useMemo(() => {
+  const { strategyOptions } = useMemo(() => {
     const stratSet = new Set<string>();
-    const catSet = new Set<string>();
-
     initialItems.forEach((i) => {
-      if (i.kind === 'tv' && i.strategyId) {
-        stratSet.add(i.strategyId);
-      }
-      if (i.kind === 'news') {
-        catSet.add(normalizeNewsCategory(i.category));
-      }
+      if (i.kind === 'tv' && i.strategyId) stratSet.add(i.strategyId);
     });
-
     return {
       strategyOptions: Array.from(stratSet).sort(),
-      newsCategoryOptions: Array.from(catSet).sort(),
     };
   }, [initialItems]);
 
   const filtered = useMemo(() => {
     let items = [...initialItems];
 
-    // 종류 필터 (TV / News / All)
     if (kindFilter !== 'all') {
       items = items.filter((i) => i.kind === kindFilter);
     }
 
-    // 방향 필터 (TV 시그널에만 적용)
     if (sideFilter !== 'all') {
       items = items.filter((i) =>
         i.kind === 'tv'
@@ -127,7 +117,6 @@ export default function SignalsFeedClient({ initialItems }: Props) {
       );
     }
 
-    // TV 전략 필터
     if (strategyFilter !== 'all') {
       items = items.filter((i) =>
         i.kind === 'tv'
@@ -136,7 +125,6 @@ export default function SignalsFeedClient({ initialItems }: Props) {
       );
     }
 
-    // 뉴스 카테고리 필터
     if (newsCategoryFilter !== 'all') {
       items = items.filter((i) =>
         i.kind === 'news'
@@ -145,7 +133,6 @@ export default function SignalsFeedClient({ initialItems }: Props) {
       );
     }
 
-    // 심볼 검색 (BTC, ETH 등)
     if (symbolQuery.trim()) {
       const q = symbolQuery.trim().toUpperCase();
       items = items.filter((i) =>
@@ -153,19 +140,25 @@ export default function SignalsFeedClient({ initialItems }: Props) {
       );
     }
 
-    // 정렬
+    // ⭐ AI Only: 점수가 있는 시그널 + 등급 B 이상(S/A/B)만
+    if (aiOnly) {
+      items = items.filter((i) => {
+        if (typeof i.score !== 'number') return false;
+        const grade = (i.grade ?? '').toUpperCase();
+        if (grade === 'S' || grade === 'A' || grade === 'B') return true;
+        return i.score >= 75;
+      });
+    }
+
     if (sortMode === 'latest') {
       items.sort((a, b) => b.createdAtMs - a.createdAtMs);
     } else if (sortMode === 'oldest') {
       items.sort((a, b) => a.createdAtMs - b.createdAtMs);
     } else if (sortMode === 'score') {
-      // 점수 높은 시그널 우선 (점수가 없는 것은 뒤로)
       items.sort((a, b) => {
         const as = typeof a.score === 'number' ? a.score : -1;
         const bs = typeof b.score === 'number' ? b.score : -1;
-        if (as === bs) {
-          return b.createdAtMs - a.createdAtMs;
-        }
+        if (as === bs) return b.createdAtMs - a.createdAtMs;
         return bs - as;
       });
     }
@@ -179,6 +172,7 @@ export default function SignalsFeedClient({ initialItems }: Props) {
     symbolQuery,
     strategyFilter,
     newsCategoryFilter,
+    aiOnly,
   ]);
 
   return (
@@ -192,7 +186,6 @@ export default function SignalsFeedClient({ initialItems }: Props) {
             FILTERS
           </span>
 
-          {/* 종류 필터 */}
           <div className="flex rounded-full border bg-background p-1">
             <Button
               size="sm"
@@ -220,7 +213,6 @@ export default function SignalsFeedClient({ initialItems }: Props) {
             </Button>
           </div>
 
-          {/* 방향 필터 (TV 전용) */}
           <div className="ml-1 flex rounded-full border bg-background p-1">
             <Button
               size="sm"
@@ -248,7 +240,6 @@ export default function SignalsFeedClient({ initialItems }: Props) {
             </Button>
           </div>
 
-          {/* 전략 Select (TV 전략 필터) */}
           <Select
             value={strategyFilter}
             onValueChange={(v: any) => setStrategyFilter(v)}
@@ -267,8 +258,20 @@ export default function SignalsFeedClient({ initialItems }: Props) {
           </Select>
         </div>
 
-        {/* 오른쪽: 심볼 검색 + 뉴스 카테고리 + 정렬 */}
+        {/* 오른쪽: AI Only + 심볼 + 뉴스 카테고리 + 정렬 */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* ⭐ AI Only 토글 */}
+          <Button
+            type="button"
+            size="sm"
+            variant={aiOnly ? 'default' : 'outline'}
+            className="h-8 px-3 text-[11px] flex items-center gap-1"
+            onClick={() => setAiOnly((v) => !v)}
+          >
+            <Sparkles className="h-3 w-3" />
+            AI Only
+          </Button>
+
           <Input
             placeholder="심볼 검색 (예: BTC, ETH)"
             value={symbolQuery}
@@ -276,7 +279,6 @@ export default function SignalsFeedClient({ initialItems }: Props) {
             className="h-8 w-32 text-[11px] md:w-40"
           />
 
-          {/* 뉴스 카테고리 필터 */}
           <Select
             value={newsCategoryFilter}
             onValueChange={(v: any) => setNewsCategoryFilter(v)}
@@ -295,7 +297,6 @@ export default function SignalsFeedClient({ initialItems }: Props) {
             </SelectContent>
           </Select>
 
-          {/* 정렬 */}
           <Select
             value={sortMode}
             onValueChange={(v: any) => setSortMode(v)}
@@ -327,7 +328,7 @@ export default function SignalsFeedClient({ initialItems }: Props) {
         </div>
       </div>
 
-      {/* 리스트 영역 */}
+      {/* 리스트 */}
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
           조건에 맞는 시그널이 없습니다.
@@ -347,7 +348,7 @@ export default function SignalsFeedClient({ initialItems }: Props) {
   );
 }
 
-/* ---------------- TV 카드 ---------------- */
+/* -------- TV 카드 -------- */
 
 function TvSignalCard({ item }: { item: UnifiedItem }) {
   const side = (item.side ?? '').toUpperCase();
@@ -438,7 +439,7 @@ function TvSignalCard({ item }: { item: UnifiedItem }) {
   );
 }
 
-/* ---------------- NEWS 카드 ---------------- */
+/* -------- NEWS 카드 -------- */
 
 function NewsSignalCard({ item }: { item: UnifiedItem }) {
   const ncat = normalizeNewsCategory(item.category);

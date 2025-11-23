@@ -1,72 +1,98 @@
 // lib/signal-scoring.ts
+// @ts-nocheck
 
-export type SignalType = 'rule' | 'ai';
+/**
+ * TV 시그널에 들어오는 온체인 / 파생상품 지표들을 기반으로
+ * 0~100 점수와 등급(S/A/B/C/D)을 계산하는 헬퍼입니다.
+ *
+ * - side: LONG / SHORT
+ * - meta.fundingRate: 현재 펀딩 비율 (%)
+ * - meta.oiChangePct: OI 변화율 (%)
+ * - meta.exchangeNetflow: 거래소 순유입 (BTC 기준, +면 유입, -면 유출)
+ * - meta.whaleRatio: Whale Exchange Ratio (0~1 사이 비율)
+ */
 
-export type SignalGrade = 'A' | 'B' | 'C' | 'D';
-
-export type BaseSignal = {
-  type: SignalType;
-  strategyId?: string;
-  score: number;     // 0 ~ 100
-  grade: SignalGrade;
+export type TvScoreInput = {
+  side?: 'LONG' | 'SHORT' | string;
+  meta?: {
+    fundingRate?: number | string;
+    oiChangePct?: number | string;
+    exchangeNetflow?: number | string;
+    whaleRatio?: number | string;
+    [key: string]: any;
+  };
 };
 
-// 온체인/선물 지표 같은 "컨텍스트" 값 (있으면 쓰고, 없으면 기본값)
-export type MarketContext = {
-  fundingRate?: number;     // 예: -0.025
-  oiChangePct?: number;     // OI 변화율 (%) 예: +7.5
-  priceChangePct?: number;  // 특정 기간 가격 변동률 (%) 예: +0.3 (거의 횡보)
+export type TvScoreResult = {
+  score: number; // 0~100
+  grade: 'S' | 'A' | 'B' | 'C' | 'D';
 };
 
-// -----------------------------
-// grade 계산 (점수 → A/B/C/D)
-// -----------------------------
-export function calcGrade(score: number): SignalGrade {
-  if (score >= 80) return 'A';
-  if (score >= 60) return 'B';
-  if (score >= 40) return 'C';
-  return 'D';
+function toNum(v: any, fallback = 0): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
-// -----------------------------
-// 규칙 기반 점수 계산 (Rule-based)
-//   - 지금은 간단한 if문 몇 개로 구성
-//   - 나중에 AI 모델로 교체해도, 이 함수만 바꾸면 됨
-// -----------------------------
-export function computeRuleScore(
-  strategyId: string | undefined,
-  ctx: MarketContext = {},
-): { score: number; grade: SignalGrade } {
-  let score = 50; // 기본값
+export function computeRuleScore(input: TvScoreInput): TvScoreResult {
+  const side = (input.side ?? '').toUpperCase();
+  const m = input.meta ?? {};
 
-  const funding = ctx.fundingRate ?? 0;
-  const oi = ctx.oiChangePct ?? 0;
-  const price = ctx.priceChangePct ?? 0;
+  const funding = toNum(m.fundingRate, 0); // 현재 펀딩 (%)
+  const oi = toNum(m.oiChangePct, 0); // OI 변화율 (%)
+  const netflow = toNum(m.exchangeNetflow, 0); // 거래소 순유입 (BTC)
+  const whaleRatio = toNum(m.whaleRatio, 0); // 0~1 비율
 
-  // 1) 예시: "펀딩이 많이 음수 + OI 증가 + 가격 횡보" → 숏 or 롱 스퀴즈 구간
-  if (funding < -0.02 && oi > 5 && Math.abs(price) < 1) {
-    score = 80;
+  // 1) 기본 점수 (중립 70점)
+  let score = 70;
+
+  // 2) Funding Rate
+  //   LONG: 마이너스 펀딩이 유리, SHORT: 플러스 펀딩이 유리
+  if (side === 'LONG') {
+    if (funding < -0.03) score += 14;
+    else if (funding < -0.02) score += 10;
+    else if (funding < -0.01) score += 6;
+    else if (funding > 0.03) score -= 14;
+    else if (funding > 0.02) score -= 10;
+  } else if (side === 'SHORT') {
+    if (funding > 0.03) score += 14;
+    else if (funding > 0.02) score += 10;
+    else if (funding > 0.01) score += 6;
+    else if (funding < -0.03) score -= 14;
+    else if (funding < -0.02) score -= 10;
   }
 
-  // 2) 예시: "펀딩이 과도한 양수 + OI 급증" → 과열 구간
-  if (funding > 0.02 && oi > 10) {
-    score = Math.max(score, 75);
-  }
+  // 3) OI 변화
+  //   +: 포지션 쌓임, -: 포지션 청산
+  if (oi > 15) score += 10;
+  else if (oi > 8) score += 7;
+  else if (oi < -15) score -= 10;
+  else if (oi < -8) score -= 7;
 
-  // 3) 전략별로 가중치
-  if (strategyId?.includes('whale')) {
-    // 고래 전략은 기본적으로 신뢰도 조금 더 높게
-    score += 5;
-  }
-  if (strategyId?.includes('scalp')) {
-    // 스캘핑 전략은 변동성 크므로 기본 점수 조금 낮춰도 됨
-    score -= 5;
-  }
+  // 4) 거래소 Netflow (BTC 기준)
+  //   음수: 거래소 유출(강세), 양수: 거래소 유입(약세)
+  if (netflow < -5000) score += 8;
+  else if (netflow < -2000) score += 5;
+  else if (netflow > 5000) score -= 8;
+  else if (netflow > 2000) score -= 5;
 
-  // 점수 범위 보정
+  // 5) Whale Ratio
+  //   낮을수록 안전, 높을수록 큰 매도 압력 위험
+  if (whaleRatio < 0.35) score += 6;
+  else if (whaleRatio > 0.6) score -= 6;
+
+  // 6) 점수 보정 및 클램프
+  if (!Number.isFinite(score)) score = 70;
   if (score > 100) score = 100;
   if (score < 0) score = 0;
 
-  const grade = calcGrade(score);
+  // 7) 등급 매핑
+  let grade: TvScoreResult['grade'];
+  if (score >= 90) grade = 'S';
+  else if (score >= 85) grade = 'A';
+  else if (score >= 75) grade = 'B';
+  else if (score >= 65) grade = 'C';
+  else grade = 'D';
+
   return { score, grade };
 }
+
