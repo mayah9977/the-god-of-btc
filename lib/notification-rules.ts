@@ -354,6 +354,18 @@ export function buildNewsNotification(
 
   return { title, body };
 }
+// =======================
+// (옵션) 사용자 룰 체크 Stub
+//  - 예전 코드에서 사용하던 함수명을 유지하기 위해 남겨둠
+//  - 현재는 아무 작업도 하지 않고 바로 리턴
+//  - 나중에 "유저별 전략 알림 조건"을 구현할 때 이 안에 로직을 넣으면 됩니다.
+// =======================
+export async function checkUserRulesForTvSignal(_signal: any): Promise<void> {
+  // 예: uid별로 Firestore에서 룰을 조회해서
+  // 특정 조건을 만족하는 유저에게만 user-<uid> 토픽으로 푸시를 쏘는 로직 등을
+  // 나중에 여기서 구현할 수 있습니다.
+  return;
+}
 
 
 
