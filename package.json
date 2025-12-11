@@ -17,7 +17,7 @@
     "firebase": "^11.0.0",
     "firebase-admin": "^12.7.0",
     "lucide-react": "^0.553.0",
-    "next": "16.0.1",
+    "next": "16.0.7",
     "postcss-loader": "^8.2.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
